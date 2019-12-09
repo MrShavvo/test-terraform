@@ -41,7 +41,7 @@ resource "aws_autoscaling_group" "example" {
   min_size = 2
   max_size = 3
 
-  tag = {
+  tag {
     key   = "Name"
     value = "terraform_asg_example"
     propagate_at_launch = true
