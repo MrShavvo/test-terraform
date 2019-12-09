@@ -2,7 +2,9 @@ provider "aws" {
   region = "us-east-2"
 }
 
-data "aws_availability_zones" "all" {}
+data "aws_availability_zones" "available" {
+  state = "available"
+}
 
 resource "aws_launch_configuration" "example" {
   image_id   = "ami-0d03add87774b12c5"
@@ -37,7 +39,7 @@ resource "aws_security_group" "instance" {
 
 resource "aws_autoscaling_group" "example" {
   launch_configuration = aws_launch_configuration.example.id
-  availability_zones = ["${data.aws_availability_zones.all.names}"]
+  availability_zones = ["${data.aws_availability_zones.available.names[0]}"]
   min_size = 2
   max_size = 3
 
