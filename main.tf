@@ -8,7 +8,7 @@ resource "aws_instance" "example" {
   vpc_security_group_ids = ["${aws_security_group.instance.id}"]
 
 #problem with variable
-  user_data = <<-EOF
+  user_data = <<EOF
         #!/bin/bash
         echo "Hello World" > index.html
         nohup busybox httpd -f -p "${var.port}" &
@@ -33,7 +33,7 @@ resource "aws_security_group" "instance" {
 
 variable "port" {
     description = "The port the server will use for HTTP requests"
-    default = 8081
+    default = 8080
 }
 
 output "public_ip" {
