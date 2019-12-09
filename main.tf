@@ -2,6 +2,8 @@ provider "aws" {
   region = "us-east-2"
 }
 
+data "aws_availability_zones" "all" {}
+
 resource "aws_launch_configuration" "example" {
   image_id   = "ami-0d03add87774b12c5"
   instance_type = "t2.micro"
