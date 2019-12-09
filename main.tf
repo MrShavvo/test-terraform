@@ -8,7 +8,7 @@ resource "aws_instance" "example" {
   vpc_security_group_ids = ["${aws_security_group.instance.id}"]
 
 #problem with variable
-  user_data = <<EOF
+  user_data = <<-EOF
         #!/bin/bash
         echo "Hello World" > index.html
         nohup busybox httpd -f -p "${var.port}" &
