@@ -2,14 +2,23 @@ provider "aws" {
   region = "us-east-2"
 }
 
-data "aws_availability_zones" "available" {
-  state = "available"
+#pulls default vpc region
+data "aws_vpc" "default" {
+  default = true
 }
 
+#looks up subnets within default vpc
+data "aws_subnet_ids" "default" {
+  vpc_id = data.aws_vpc.default.id
+}
+
+#resource "<provider>_<type>" "<name>"
+
+#launch configuration which specifies how to configure each ec2 instance in the asg
 resource "aws_launch_configuration" "example" {
   image_id   = "ami-0d03add87774b12c5"
   instance_type = "t2.micro"
-  security_groups = ["${aws_security_group.instance.id}"]
+  security_groups = [aws_security_group.instance.id]
 
   user_data = <<-EOF
         #!/bin/bash
@@ -22,6 +31,7 @@ resource "aws_launch_configuration" "example" {
   }
 }
 
+#security group to allow traffic to istances
 resource "aws_security_group" "instance" {
     name = "terraform-example-instance"
 
@@ -37,52 +47,77 @@ resource "aws_security_group" "instance" {
   }
 }
 
-resource "aws_elb" "example" {
-  name  = "terraform-asg-example"
-  availability_zones = ["${data.aws_availability_zones.available.names[0]}"]
-  security_groups    = ["${aws_security_group.elb.id}"]
+#creates an ALB
+resource "aws_lb" "example" {
+  name                = "terraform-asg-example"
+  load_balancer_type  = "application"
+  subnets             = data.aws_subnet_ids.default.ids
+  security_groups     = [aws_security_group.alb.id]
+}
 
-  listener {
-    lb_port           = 80
-    lb_protocol       = "http"
-    instance_port     = var.port
-    instance_protocol = "http"
+#listener to configure the ALB
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.example.arn
+  port              = 80 #default http port
+  protocol          = "HTTP" #http as the protocol
+
+  #By default, return a simple 404 page
+  default_action {
+    type  = "fixed-response"
+
+    fixed_response {
+      content_type  = "text/plain"
+      message_body  = "404: page not found"
+      status_code   = 404
+    }
+  }
+}
+
+#security group to allow incoming and outgoing requests on the ALB
+resource "aws_security_group" "alb" {
+  name  = "terraform-example-alb"
+
+  #allow inbound HTTP requests
+  ingress {
+    from_port     = 80
+    to_port       = 80
+    protocol      = "tcp"
+    cidr_blocks   = ["0.0.0.0/0"]
   }
 
-  health_check {
+  #allow all outbound requests
+  egress  {
+    from_port     = 0
+    to_port       = 0
+    protocol      = "-1"
+    cidr_blocks   = ["0.0.0.0/0"]
+  }
+}
+
+#target group with healthcheck
+resource "aws_lb_target_group" "asg" {
+  name      = "terraform-asg-example"
+  port      = var.port
+  protocol  = "HTTP"
+  vpc_id    = data.aws_vpc.default.id
+
+  health_check  {
+    path                = "/"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 3
     healthy_threshold   = 2
     unhealthy_threshold = 2
-    timeout             = 3
-    interval            = 60
-    target              = "HTTP:${var.port}/"
   }
 }
 
-resource "aws_security_group" "elb" {
-  name  = "terraform-example-elb"
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-
-
+#asg responsible for creating ec2 instances
 resource "aws_autoscaling_group" "example" {
   launch_configuration = aws_launch_configuration.example.id
-  availability_zones = ["${data.aws_availability_zones.available.names[0]}"]
+  vpc_zone_identifier = data.aws_subnet_ids.default.ids
 
-  load_balancers    = ["${aws_elb.example.name}"]
+  target_group_arns = [aws_lb_target_group.asg.arn]
   health_check_type = "ELB"
 
   min_size = 2
@@ -95,12 +130,33 @@ resource "aws_autoscaling_group" "example" {
   }
 }
 
+#Add a listener rule to send requests that match any path to the target group that contains the ASG
+resource "aws_lb_listener_rule" "asg" {
+  listener_arn  = aws_lb_listener.http.arn
+  priority      = 100
 
+  condition {
+    field   = "path-pattern"
+    values  = ["*"]
+  }
+
+  action  {
+    type              = "forward"
+    target_group_arn  = aws_lb_target_group.asg.arn
+  }
+}
+
+
+#variable "name"{
+#   config
+# }
 variable "port" {
     description = "The port the server will use for HTTP requests"
+    type    = number
     default = 8080
 }
 
-output "elb_dns_name" {
-  value = "${aws_elb.example.dns_name}"
+output "alb_dns_name" {
+  value       = aws_lb.example.dns_name
+  description = "the domain name of the load balancer"
 }
